@@ -1,4 +1,4 @@
-name: Build & Push to GHCR
+name: Build & Push
 
 on:
   push:
@@ -31,14 +31,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      # 计算 7 位短 SHA
+      - name: Calc short SHA
+        id: vars
+        run: echo "sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ghcr.io/${{ github.repository_owner }}/ubuntu2404_ai
           tags: |
-            type=ref,event=tag
-            type=sha,prefix=,suffix=,format=short
+            type=raw,value=${{ steps.vars.outputs.sha }}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v5
