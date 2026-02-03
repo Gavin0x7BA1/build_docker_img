@@ -1,23 +1,49 @@
-FROM ubuntu:24.04
-ENV DEBIAN_FRONTEND=noninteractive
+FROM python:3.12.10-slim AS base
 
-# 1. 装 Python 和编译工具
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-venv python3-pip build-essential ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt install --no-install-recommends -y git curl && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 2. 创建并激活虚拟环境
-ENV VENV=/opt/venv
-RUN python3 -m venv $VENV
-ENV PATH="$VENV/bin:$PATH"
-
-# 3. 安装依赖
 WORKDIR /app
-COPY app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ADD pyproject.toml .
+ADD requirements.txt .
+ADD docs docs
+RUN pip install --no-cache-dir . && rm pyproject.toml requirements.txt
+ENV PYTHONPATH=/app
 
-# 4. 复制其余文件（可选）
-COPY . .
+FROM base AS github_app
+ADD pr_agent pr_agent
+CMD ["python", "-m", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-c", "pr_agent/servers/gunicorn_config.py", "--forwarded-allow-ips", "*", "pr_agent.servers.github_app:app"]
 
-# 5. 启动命令
-CMD ["python3","api.py"]
+FROM base AS bitbucket_app
+ADD pr_agent pr_agent
+CMD ["python", "pr_agent/servers/bitbucket_app.py"]
+
+FROM base AS bitbucket_server_webhook
+ADD pr_agent pr_agent
+CMD ["python", "pr_agent/servers/bitbucket_server_webhook.py"]
+
+FROM base AS github_polling
+ADD pr_agent pr_agent
+CMD ["python", "pr_agent/servers/github_polling.py"]
+
+FROM base AS gitlab_webhook
+ADD pr_agent pr_agent
+CMD ["python", "pr_agent/servers/gitlab_webhook.py"]
+
+FROM base AS azure_devops_webhook
+ADD pr_agent pr_agent
+CMD ["python", "pr_agent/servers/azuredevops_server_webhook.py"]
+
+FROM base AS gitea_app
+ADD pr_agent pr_agent
+CMD ["python", "-m", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-c", "pr_agent/servers/gunicorn_config.py","pr_agent.servers.gitea_app:app"]
+
+
+FROM base AS test
+ADD requirements-dev.txt .
+RUN pip install --no-cache-dir -r requirements-dev.txt && rm requirements-dev.txt
+ADD pr_agent pr_agent
+ADD tests tests
+
+FROM base AS cli
+ADD pr_agent pr_agent
+ENTRYPOINT ["python", "pr_agent/cli.py"]
